@@ -1,0 +1,35 @@
+{
+  "name": "poster-proof",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local preflight desk for the text and QR codes inside generated posters.",
+  "license": "MIT",
+  "author": "Ufodia",
+  "scripts": {
+    "predev": "node scripts/vendor-ocr.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "prebuild": "node scripts/vendor-ocr.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "jsqr": "1.4.0",
+    "qrcode": "1.5.4",
+    "tesseract.js": "7.0.0",
+    "tesseract.js-core": "7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.10.1",
+    "@types/qrcode": "1.5.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}
