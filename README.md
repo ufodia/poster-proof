@@ -4,6 +4,9 @@
 
 <p align="center"><a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-344b31"></a> <img alt="Local English OCR" src="https://img.shields.io/badge/OCR-local_English-bd4b32"> <img alt="No API key" src="https://img.shields.io/badge/API_key-not_required-6b8052"> <a href="https://buymeacoffee.com/ufodia"><img src="docs/assets/coffee-button.svg" alt="Buy Ufodia a coffee" height="28"></a></p>
 
+
+**[Open the live app ↗](https://poster-proof.vercel.app/)** · [Deployment guide](docs/DEPLOYMENT.md)
+
 ## Catch it here. Not on 500 copies.
 
 AI-generated artwork can look finished while a date, address, or ticket link is wrong. PosterProof compares the text recognized from your image with approved copy, points out mismatched regions, decodes a QR code, and keeps your review in a downloadable report.

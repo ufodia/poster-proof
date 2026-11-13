@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm test && npm run build",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "prepare:hosting": "node scripts/prepare-hosting.mjs",
+    "postbuild": "npm run prepare:hosting"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
@@ -31,5 +33,8 @@
     "typescript": "7.0.2",
     "vite": "8.3.8",
     "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }
