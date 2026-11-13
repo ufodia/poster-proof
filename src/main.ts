@@ -15,11 +15,12 @@ const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const expected=el<HTMLTextAreaElement>('expected'),transcript=el<HTMLTextAreaElement>('transcript'),qrTarget=el<HTMLInputElement>('qr-target');
 let canvas:HTMLCanvasElement|null=null,words:OcrWord[]=[],report:ProofReport|null=null,worker:Worker|null=null;
 let decoded:string|null=null,reviewed=new Set<string>(),busy=false,filename='open-studio-demo.png';
+let imageGeneration=0,imageLoading=false;
 let originalWidth=900,originalHeight=1200,mode='demo-fixture';
 const error=(message:string)=>{el('error').textContent=message;el('error').hidden=!message;};
 function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function qrScan(){if(!canvas)return;const c=canvas.getContext('2d')!;const pixels=c.getImageData(0,0,canvas.width,canvas.height);decoded=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'attemptBoth'})?.data||null;}
-function setImage(next:HTMLCanvasElement,name:string,width=next.width,height=next.height){canvas=next;filename=name;originalWidth=width;originalHeight=height;el<HTMLImageElement>('poster').src=canvas.toDataURL('image/png');el('filename').textContent=name;el('dimensions').textContent=`${width} × ${height} px${width!==next.width?' · resized for analysis':''}`;qrScan();}
+function setImage(next:HTMLCanvasElement,name:string,width=next.width,height=next.height){canvas=next;filename=name;originalWidth=width;originalHeight=height;el<HTMLImageElement>('poster').src=canvas.toDataURL('image/png');el('filename').textContent=name;el('dimensions').textContent=`${width} × ${height} px${width!==next.width||height!==next.height?' · resized for analysis':''}`;qrScan();}
 function render(){
   if(!report)return;
   const qr=checkQr(decoded,qrTarget.value);
@@ -43,14 +44,38 @@ function render(){
 }
 function compare(){try{report=proofText(expected.value,transcript.value,words);reviewed=new Set();render();error('');}catch(e){error(e instanceof Error?e.message:String(e));}}
 function invalidate(){report=null;reviewed.clear();el<HTMLButtonElement>('export').disabled=true;el('finding-count').textContent='—';el('review-count').textContent='—';el('qr-state').textContent='Not checked';el('qr-state').className='';el('qr-message').textContent='';el('overlay').replaceChildren();el('findings').replaceChildren();const p=document.createElement('p');p.className='empty';p.textContent='Content changed. Compare current text to refresh your proof.';el('findings').append(p);}
-async function loadDemo(){if(busy)return;const demo=await makeDemo();words=demo.words;mode='demo-fixture';expected.value=approvedDemo;qrTarget.value=expectedQrDemo;transcript.value=demo.text;setImage(demo.canvas,'open-studio-demo.png');el('processing').textContent='Demo transcript loaded. Rescan to run real OCR.';compare();}
+function loadingImage(loading:boolean){imageLoading=loading;for(const id of ['scan','compare','download-demo'])el<HTMLButtonElement>(id).disabled=busy||loading;}
+async function loadDemo(){
+  if(busy)return;
+  const generation=++imageGeneration;loadingImage(true);invalidate();error('');
+  try{
+    const demo=await makeDemo();if(generation!==imageGeneration)return;
+    words=demo.words;mode='demo-fixture';expected.value=approvedDemo;qrTarget.value=expectedQrDemo;transcript.value=demo.text;setImage(demo.canvas,'open-studio-demo.png');el('processing').textContent='Demo transcript loaded. Rescan to run real OCR.';compare();
+  }catch(e){if(generation===imageGeneration)error(e instanceof Error?e.message:'The demo artwork could not be loaded.');}
+  finally{if(generation===imageGeneration)loadingImage(false);}
+}
 el('demo').onclick=()=>void loadDemo();el('compare').onclick=compare;
 for(const input of [expected,qrTarget])input.oninput=invalidate;
 transcript.oninput=()=>{words=[];mode='manual-transcript';invalidate();};
 for(const id of ['print-width','print-height'])el(id).oninput=()=>report&&render();
-el<HTMLInputElement>('file').onchange=async e=>{const input=e.target as HTMLInputElement,file=input.files?.[0];if(!file||busy)return;try{if(!['image/png','image/jpeg'].includes(file.type))throw new Error('Choose a PNG or JPEG image.');if(file.size>12*1024*1024)throw new Error('Choose an image smaller than 12 MB.');const image=await createImageBitmap(file);if(image.width*image.height>40000000){image.close();throw new Error('Use an image with 40 megapixels or fewer.');}const next=document.createElement('canvas'),scale=Math.min(1,3200/Math.max(image.width,image.height));next.width=Math.round(image.width*scale);next.height=Math.round(image.height*scale);const c=next.getContext('2d')!;c.fillStyle='white';c.fillRect(0,0,next.width,next.height);c.drawImage(image,0,0,next.width,next.height);setImage(next,file.name,image.width,image.height);image.close();words=[];transcript.value='';mode='uploaded';invalidate();el('processing').textContent='Artwork loaded. Run local OCR to read its text.';error('');}catch(e){error(e instanceof Error?e.message:String(e));}input.value='';};
+el<HTMLInputElement>('file').onchange=async e=>{
+  const input=e.target as HTMLInputElement,file=input.files?.[0];if(!file||busy)return;
+  const generation=++imageGeneration;let image:ImageBitmap|undefined;
+  loadingImage(true);invalidate();el('processing').textContent='Reading artwork locally…';error('');
+  try{
+    if(!['image/png','image/jpeg'].includes(file.type))throw new Error('Choose a PNG or JPEG image.');
+    if(file.size>12*1024*1024)throw new Error('Choose an image smaller than 12 MB.');
+    image=await createImageBitmap(file);if(generation!==imageGeneration)return;
+    if(image.width*image.height>40000000)throw new Error('Use an image with 40 megapixels or fewer.');
+    const next=document.createElement('canvas'),scale=Math.min(1,3200/Math.max(image.width,image.height));
+    next.width=Math.max(1,Math.round(image.width*scale));next.height=Math.max(1,Math.round(image.height*scale));
+    const c=next.getContext('2d')!;c.fillStyle='white';c.fillRect(0,0,next.width,next.height);c.drawImage(image,0,0,next.width,next.height);
+    setImage(next,file.name,image.width,image.height);words=[];transcript.value='';mode='uploaded';invalidate();el('processing').textContent='Artwork loaded. Run local OCR to read its text.';error('');
+  }catch(e){if(generation===imageGeneration){error(e instanceof Error?e.message:String(e));el('processing').textContent='Artwork was not loaded. Choose another image or load the demo.';}}
+  finally{image?.close();if(generation===imageGeneration){loadingImage(false);input.value='';}}
+};
 el('scan').onclick=async()=>{
-  if(!canvas||busy)return;busy=true;invalidate();const scan=el<HTMLButtonElement>('scan');scan.disabled=true;el<HTMLButtonElement>('demo').disabled=true;el<HTMLInputElement>('file').disabled=true;el<HTMLButtonElement>('compare').disabled=true;for(const input of [expected,transcript,qrTarget])input.disabled=true;error('');
+  if(!canvas||busy||imageLoading)return;busy=true;invalidate();const scan=el<HTMLButtonElement>('scan');scan.disabled=true;el<HTMLButtonElement>('demo').disabled=true;el<HTMLInputElement>('file').disabled=true;el<HTMLButtonElement>('compare').disabled=true;for(const input of [expected,transcript,qrTarget])input.disabled=true;error('');
   // Freeze an image snapshot; edits during processing cannot change the recognized pixels.
   const snapshot=document.createElement('canvas');snapshot.width=canvas.width;snapshot.height=canvas.height;snapshot.getContext('2d')!.drawImage(canvas,0,0);
   try{
@@ -61,7 +86,7 @@ el('scan').onclick=async()=>{
   }catch(e){error(e instanceof Error?e.message:'OCR failed. Ensure the local OCR assets were prepared with npm run dev or npm run build.');el('processing').textContent='OCR did not finish. You can enter a transcript manually.';if(worker){await worker.terminate().catch(()=>{});worker=null;}}
   finally{busy=false;scan.disabled=false;el<HTMLButtonElement>('demo').disabled=false;el<HTMLInputElement>('file').disabled=false;el<HTMLButtonElement>('compare').disabled=false;for(const input of [expected,transcript,qrTarget])input.disabled=false;}
 };
-el('download-demo').onclick=()=>{canvas?.toBlob(blob=>{if(blob)download(blob,filename.replace(/\.[^.]+$/,'')+'-analysis.png');});};
+el('download-demo').onclick=()=>{const image=canvas,name=filename;image?.toBlob(blob=>{if(blob)download(blob,name.replace(/\.[^.]+$/,'')+'-analysis.png');});};
 el('export').onclick=()=>{if(!report)return;const qr=checkQr(decoded,qrTarget.value);let density=null;try{density=printDensity(originalWidth,originalHeight,Number(el<HTMLInputElement>('print-width').value),Number(el<HTMLInputElement>('print-height').value));}catch{}download(new Blob([JSON.stringify({...report,image:{filename,width:originalWidth,height:originalHeight,analysisWidth:canvas?.width,analysisHeight:canvas?.height},transcriptSource:mode,qr:{...qr,decoded,expected:qrTarget.value},density,reviewed:[...reviewed]},null,2)+'\n'],{type:'application/json'}),'poster-proof-report.json');};
 window.addEventListener('pagehide',()=>void worker?.terminate());
 void loadDemo();

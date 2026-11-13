@@ -26,3 +26,32 @@ test('local workbench: analysis, evidence, export and responsive layout',async({
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1)).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('pending artwork disables OCR and cannot overwrite a later demo',async({page})=>{
+  await page.goto('/');
+  await expect(page.locator('#poster')).toHaveAttribute('src',/^data:image\/png/);
+  const png=Buffer.from(await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=2;canvas.height=3;return canvas.toDataURL().split(',')[1];}),'base64');
+  await page.evaluate(()=>{const decode=window.createImageBitmap;window.createImageBitmap=async(...args)=>{const image=await decode(...args);return args[0]?.name==='slow.png'?new Promise(resolve=>{window.finishArtwork=()=>resolve(image);}):image;};});
+  await page.locator('#file').setInputFiles({name:'slow.png',mimeType:'image/png',buffer:png});
+  await expect.poll(()=>page.evaluate(()=>typeof window.finishArtwork)).toBe('function');
+  await expect(page.locator('#scan')).toBeDisabled();
+  await page.locator('#demo').click();
+  await expect(page.locator('#processing')).toContainText('Demo transcript loaded');
+  await expect(page.locator('#scan')).toBeEnabled();
+  await page.evaluate(()=>window.finishArtwork());
+  await expect(page.locator('#filename')).toHaveText('open-studio-demo.png');
+  await expect(page.locator('#dimensions')).toHaveText('900 × 1200 px');
+});
+
+test('very narrow valid artwork keeps a nonempty analysis canvas',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#poster')).toHaveAttribute('src',/^data:image\/png/);
+  const png=Buffer.from(await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=1;canvas.height=7000;return canvas.toDataURL().split(',')[1];}),'base64');
+  await page.locator('#file').setInputFiles({name:'narrow.png',mimeType:'image/png',buffer:png});
+  await expect(page.locator('#filename')).toHaveText('narrow.png');
+  await expect(page.locator('#dimensions')).toHaveText('1 × 7000 px · resized for analysis');
+  await expect(page.locator('#error')).toBeHidden();
+  await expect(page.locator('#scan')).toBeEnabled();
+  expect(errors).toEqual([]);
+});
