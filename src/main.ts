@@ -1,6 +1,6 @@
 import './style.css';
 import {createWorker,type Worker}from'tesseract.js';
-import jsQR from'jsqr';
+import jsQR,{type QRCode}from'jsqr';
 import {proofText,checkQr,printDensity,type OcrWord,type ProofReport}from'./core';
 import {makeDemo,approvedDemo,expectedQrDemo}from'./demo';
 
@@ -14,13 +14,13 @@ document.querySelector('#app')!.innerHTML=`<header><a class="brand" href="#"><sp
 const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const expected=el<HTMLTextAreaElement>('expected'),transcript=el<HTMLTextAreaElement>('transcript'),qrTarget=el<HTMLInputElement>('qr-target');
 let canvas:HTMLCanvasElement|null=null,words:OcrWord[]=[],report:ProofReport|null=null,worker:Worker|null=null;
-let decoded:string|null=null,reviewed=new Set<string>(),busy=false,filename='open-studio-demo.png';
+let decoded:string|null=null,qrLocation:QRCode['location']|null=null,ocrQrExcluded=false,reviewed=new Set<string>(),busy=false,filename='open-studio-demo.png';
 let imageGeneration=0,imageLoading=false;
 let originalWidth=900,originalHeight=1200,mode='demo-fixture';
 const error=(message:string)=>{el('error').textContent=message;el('error').hidden=!message;};
 function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function qrScan(){if(!canvas)return;const c=canvas.getContext('2d')!;const pixels=c.getImageData(0,0,canvas.width,canvas.height);decoded=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'attemptBoth'})?.data||null;}
-function setImage(next:HTMLCanvasElement,name:string,width=next.width,height=next.height){canvas=next;filename=name;originalWidth=width;originalHeight=height;el<HTMLImageElement>('poster').src=canvas.toDataURL('image/png');el('filename').textContent=name;el('dimensions').textContent=`${width} × ${height} px${width!==next.width||height!==next.height?' · resized for analysis':''}`;qrScan();}
+function qrScan(){if(!canvas)return;const c=canvas.getContext('2d')!;const pixels=c.getImageData(0,0,canvas.width,canvas.height);const qr=jsQR(pixels.data,pixels.width,pixels.height,{inversionAttempts:'attemptBoth'});decoded=qr?.data||null;qrLocation=qr?.location||null;}
+function setImage(next:HTMLCanvasElement,name:string,width=next.width,height=next.height){canvas=next;ocrQrExcluded=false;filename=name;originalWidth=width;originalHeight=height;el<HTMLImageElement>('poster').src=canvas.toDataURL('image/png');el('filename').textContent=name;el('dimensions').textContent=`${width} × ${height} px${width!==next.width||height!==next.height?' · resized for analysis':''}`;qrScan();}
 function render(){
   if(!report)return;
   const qr=checkQr(decoded,qrTarget.value);
@@ -42,7 +42,7 @@ function render(){
   }
   el<HTMLButtonElement>('export').disabled=false;
 }
-function compare(){try{report=proofText(expected.value,transcript.value,words);reviewed=new Set();render();error('');}catch(e){error(e instanceof Error?e.message:String(e));}}
+function compare(){try{report=proofText(expected.value,transcript.value,words);if(ocrQrExcluded)report.limitations+=' The detected QR area was excluded from OCR; inspect any overlapping text manually.';reviewed=new Set();render();error('');}catch(e){error(e instanceof Error?e.message:String(e));}}
 function invalidate(){report=null;reviewed.clear();el<HTMLButtonElement>('export').disabled=true;el('finding-count').textContent='—';el('review-count').textContent='—';el('qr-state').textContent='Not checked';el('qr-state').className='';el('qr-message').textContent='';el('overlay').replaceChildren();el('findings').replaceChildren();const p=document.createElement('p');p.className='empty';p.textContent='Content changed. Compare current text to refresh your proof.';el('findings').append(p);}
 function loadingImage(loading:boolean){imageLoading=loading;for(const id of ['scan','compare','download-demo'])el<HTMLButtonElement>(id).disabled=busy||loading;}
 async function loadDemo(){
@@ -77,12 +77,13 @@ el<HTMLInputElement>('file').onchange=async e=>{
 el('scan').onclick=async()=>{
   if(!canvas||busy||imageLoading)return;busy=true;invalidate();const scan=el<HTMLButtonElement>('scan');scan.disabled=true;el<HTMLButtonElement>('demo').disabled=true;el<HTMLInputElement>('file').disabled=true;el<HTMLButtonElement>('compare').disabled=true;for(const input of [expected,transcript,qrTarget])input.disabled=true;error('');
   // Freeze an image snapshot; edits during processing cannot change the recognized pixels.
-  const snapshot=document.createElement('canvas');snapshot.width=canvas.width;snapshot.height=canvas.height;snapshot.getContext('2d')!.drawImage(canvas,0,0);
+  const snapshot=document.createElement('canvas');snapshot.width=canvas.width;snapshot.height=canvas.height;const snapshotContext=snapshot.getContext('2d')!;snapshotContext.drawImage(canvas,0,0);
+  if(qrLocation){const {topLeftCorner,topRightCorner,bottomRightCorner,bottomLeftCorner}=qrLocation;snapshotContext.fillStyle='white';snapshotContext.beginPath();snapshotContext.moveTo(topLeftCorner.x,topLeftCorner.y);for(const point of [topRightCorner,bottomRightCorner,bottomLeftCorner])snapshotContext.lineTo(point.x,point.y);snapshotContext.closePath();snapshotContext.fill();}
   try{
     if(!worker){const base=new URL('ocr/',document.baseURI).href;worker=await createWorker('eng',1,{workerPath:base+'worker.min.js',corePath:base+'core',langPath:base,workerBlobURL:false,cacheMethod:'none',logger:message=>{el('processing').textContent=`${message.status.replace(/\b\w/g,c=>c.toUpperCase())} ${Math.round((message.progress||0)*100)}%`;}});}
     const {data}=await worker.recognize(snapshot,{}, {text:true,blocks:true});
     words=(data.blocks||[]).flatMap(block=>block.paragraphs.flatMap(p=>p.lines.flatMap(line=>line.words.map(w=>({text:w.text,confidence:w.confidence,bbox:w.bbox})))));
-    transcript.value=data.text.trim();mode='local-ocr';el('processing').textContent=`Local OCR complete · ${Math.round(data.confidence)} confidence · English model`;compare();
+    transcript.value=data.text.trim();ocrQrExcluded=!!qrLocation;mode='local-ocr';el('processing').textContent=`Local OCR complete · ${Math.round(data.confidence)} confidence · English model${qrLocation?' · QR area excluded; inspect overlapping text manually':''}`;compare();
   }catch(e){error(e instanceof Error?e.message:'OCR failed. Ensure the local OCR assets were prepared with npm run dev or npm run build.');el('processing').textContent='OCR did not finish. You can enter a transcript manually.';if(worker){await worker.terminate().catch(()=>{});worker=null;}}
   finally{busy=false;scan.disabled=false;el<HTMLButtonElement>('demo').disabled=false;el<HTMLInputElement>('file').disabled=false;el<HTMLButtonElement>('compare').disabled=false;for(const input of [expected,transcript,qrTarget])input.disabled=false;}
 };
