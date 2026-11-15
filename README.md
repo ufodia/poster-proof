@@ -94,6 +94,8 @@ If PosterProof caught a detail before it became a print run, consider supporting
 
 <a href="https://buymeacoffee.com/ufodia"><img src="docs/assets/coffee-button.svg" alt="Buy Ufodia a coffee" width="220"></a>
 
+You can also [sponsor ufodia on GitHub](https://github.com/sponsors/ufodia).
+
 Bug reports with small, anonymized reproductions are welcome too.
 
 ## License and credits
