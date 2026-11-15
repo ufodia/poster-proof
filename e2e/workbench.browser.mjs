@@ -55,3 +55,14 @@ test('very narrow valid artwork keeps a nonempty analysis canvas',async({page})=
   await expect(page.locator('#scan')).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+
+test('reviewing a finding keeps the keyboard focus on that finding',async({page})=>{
+  await page.goto('/');
+  const button=page.locator('.review-button').first();
+  await expect(button).toBeVisible();const id=await button.getAttribute('data-finding');
+  await button.focus();await page.keyboard.press('Enter');
+  const reviewed=page.locator(`.review-button[data-finding="${id}"]`);
+  await expect(reviewed).toBeFocused();await expect(reviewed).toHaveAttribute('aria-pressed','true');
+  await page.keyboard.press('Enter');await expect(reviewed).toBeFocused();await expect(reviewed).toHaveAttribute('aria-pressed','false');
+});

@@ -23,6 +23,7 @@ function qrScan(){if(!canvas)return;const c=canvas.getContext('2d')!;const pixel
 function setImage(next:HTMLCanvasElement,name:string,width=next.width,height=next.height){canvas=next;ocrQrExcluded=false;filename=name;originalWidth=width;originalHeight=height;el<HTMLImageElement>('poster').src=canvas.toDataURL('image/png');el('filename').textContent=name;el('dimensions').textContent=`${width} × ${height} px${width!==next.width||height!==next.height?' · resized for analysis':''}`;qrScan();}
 function render(){
   if(!report)return;
+  const focusedFinding=(document.activeElement as HTMLElement | null)?.dataset.finding;
   const qr=checkQr(decoded,qrTarget.value);
   el('finding-count').textContent=String(report.findings.filter(f=>!reviewed.has(f.id)).length);
   el('review-count').textContent=`${reviewed.size} / ${report.findings.length}`;
@@ -37,10 +38,11 @@ function render(){
     const flag=document.createElement('span');flag.className='flag';flag.textContent=f.kind==='uncertain'?'?':'!';
     const body=document.createElement('div');const heading=document.createElement('h3');heading.textContent=f.kind==='uncertain'?'Low-confidence reading':f.kind==='missing'?'Approved copy differs':'Extra recognized text';
     const message=document.createElement('p');message.textContent=f.message;body.append(heading,message);
-    const button=document.createElement('button');button.className='review-button';button.textContent=reviewed.has(f.id)?'✓ Reviewed':'Mark reviewed';button.setAttribute('aria-pressed',String(reviewed.has(f.id)));button.onclick=()=>{reviewed.has(f.id)?reviewed.delete(f.id):reviewed.add(f.id);render();};row.append(flag,body,button);list.append(row);
+    const button=document.createElement('button');button.className='review-button';button.dataset.finding=f.id;button.textContent=reviewed.has(f.id)?'✓ Reviewed':'Mark reviewed';button.setAttribute('aria-pressed',String(reviewed.has(f.id)));button.onclick=()=>{reviewed.has(f.id)?reviewed.delete(f.id):reviewed.add(f.id);render();};row.append(flag,body,button);list.append(row);
     if(canvas&&!reviewed.has(f.id))for(const box of f.boxes){const mark=document.createElement('div');mark.className='box';mark.style.left=`${box.x0/canvas.width*100}%`;mark.style.top=`${box.y0/canvas.height*100}%`;mark.style.width=`${(box.x1-box.x0)/canvas.width*100}%`;mark.style.height=`${(box.y1-box.y0)/canvas.height*100}%`;overlay.append(mark);}
   }
   el<HTMLButtonElement>('export').disabled=false;
+  if(focusedFinding)list.querySelector<HTMLButtonElement>(`[data-finding="${CSS.escape(focusedFinding)}"]`)?.focus({preventScroll:true});
 }
 function compare(){try{report=proofText(expected.value,transcript.value,words);if(ocrQrExcluded)report.limitations+=' The detected QR area was excluded from OCR; inspect any overlapping text manually.';reviewed=new Set();render();error('');}catch(e){error(e instanceof Error?e.message:String(e));}}
 function invalidate(){report=null;reviewed.clear();el<HTMLButtonElement>('export').disabled=true;el('finding-count').textContent='—';el('review-count').textContent='—';el('qr-state').textContent='Not checked';el('qr-state').className='';el('qr-message').textContent='';el('overlay').replaceChildren();el('findings').replaceChildren();const p=document.createElement('p');p.className='empty';p.textContent='Content changed. Compare current text to refresh your proof.';el('findings').append(p);}
